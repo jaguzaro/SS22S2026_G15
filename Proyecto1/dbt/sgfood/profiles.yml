@@ -1,0 +1,12 @@
+sgfood:
+  target: dev
+  outputs:
+    dev:
+      type: postgres
+      host: "{{ env_var('DW_HOST', 'localhost') }}"
+      port: "{{ env_var('DW_PORT', '5433') | as_number }}"
+      user: "{{ env_var('DW_USER', 'sgfood') }}"
+      password: "{{ env_var('DW_PASSWORD') }}"
+      dbname: "{{ env_var('DW_DB', 'sgfood_dw') }}"
+      schema: staging
+      threads: 4
