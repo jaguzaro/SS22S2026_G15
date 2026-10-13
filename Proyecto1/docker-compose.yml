@@ -1,0 +1,25 @@
+name: sgfood
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: sgfood-postgres
+    environment:
+      POSTGRES_USER: ${PG_USER:-sgfood}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-sgfood_dev}
+      POSTGRES_DB: postgres
+    ports:
+      - "${PG_HOST_PORT:-5433}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./sql/00_init_databases.sql:/docker-entrypoint-initdb.d/00_init_databases.sql:ro
+      - ./sql:/sql:ro
+      - ./data:/data:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d sgfood_dw"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgdata:
