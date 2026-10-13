@@ -1,0 +1,12 @@
+FROM apache/airflow:3.3.2-python3.12
+
+USER root
+COPY dbt/sgfood/requirements.txt /tmp/requirements-dbt.txt
+RUN python -m venv /opt/dbt-venv \
+    && /opt/dbt-venv/bin/pip install --no-cache-dir -r /tmp/requirements-dbt.txt \
+    && chown -R airflow: /opt/dbt-venv
+ENV PATH="${PATH}:/opt/dbt-venv/bin"
+
+USER airflow
+COPY extract_load/requirements.txt /tmp/requirements-el.txt
+RUN pip install --no-cache-dir "apache-airflow==${AIRFLOW_VERSION}" -r /tmp/requirements-el.txt

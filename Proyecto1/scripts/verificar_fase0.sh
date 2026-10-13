@@ -18,7 +18,6 @@ check "suma subtotal" "$(q sgfood_oltp "SELECT sum(subtotal) FROM oltp_sgfood.ve
 echo "Data Warehouse sgfood_dw"
 check "schemas" "$(q sgfood_dw "SELECT string_agg(schema_name, ',' ORDER BY schema_name) FROM information_schema.schemata WHERE schema_name IN ('raw','staging','intermediate','marts')")" "intermediate,marts,raw,staging"
 check "tablas en raw" "$(q sgfood_dw "SELECT count(*) FROM information_schema.tables WHERE table_schema = 'raw'")" "12"
-check "filas en raw" "$(q sgfood_dw "SELECT coalesce(sum(n_live_tup), 0) FROM pg_stat_user_tables WHERE schemaname = 'raw'")" "0"
 
 echo "Contrato idempotente"
 if docker compose exec -T postgres psql -q -U "${PG_USER:-sgfood}" -d sgfood_dw -v ON_ERROR_STOP=1 -f /sql/01_raw_ddl.sql >/dev/null 2>&1; then

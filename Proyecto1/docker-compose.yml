@@ -21,5 +21,69 @@ services:
       timeout: 5s
       retries: 20
 
+  airflow-db:
+    image: postgres:16
+    container_name: sgfood-airflow-db
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - airflowdb:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  airflow:
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    image: sgfood-airflow:3.3.2
+    container_name: sgfood-airflow
+    command: standalone
+    user: "${AIRFLOW_UID:-50000}:0"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      airflow-db:
+        condition: service_healthy
+    ports:
+      - "${AIRFLOW_HOST_PORT:-8080}:8080"
+    environment:
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "False"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "False"
+      AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "True"
+      AIRFLOW__DAG_PROCESSOR__REFRESH_INTERVAL: "30"
+      DW_HOST: postgres
+      DW_PORT: "5432"
+      DW_USER: ${PG_USER:-sgfood}
+      DW_PASSWORD: ${PG_PASSWORD:-sgfood_dev}
+      DW_DB: sgfood_dw
+      OLTP_HOST: postgres
+      OLTP_PORT: "5432"
+      OLTP_USER: ${PG_USER:-sgfood}
+      OLTP_PASSWORD: ${PG_PASSWORD:-sgfood_dev}
+      OLTP_DB: sgfood_oltp
+      OLTP_SCHEMA: oltp_sgfood
+      SGFOOD_LOG_DIR: /opt/airflow/logs/sgfood
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+      - ./extract_load:/opt/airflow/extract_load
+      - ./sql:/opt/airflow/sql:ro
+      - ./data:/opt/airflow/data:ro
+      - ./dbt:/opt/airflow/dbt
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:8080/api/v2/monitor/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
 volumes:
   pgdata:
+  airflowdb:
