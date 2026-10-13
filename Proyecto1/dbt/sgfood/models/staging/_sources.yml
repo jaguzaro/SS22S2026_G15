@@ -1,0 +1,59 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    description: Datos crudos cargados por Python (fuente OLTP y CSV).
+    tables:
+      - name: sucursal
+        columns:
+          - name: id_sucursal
+            data_tests: [unique, not_null]
+      - name: categoria
+        columns:
+          - name: id_categoria
+            data_tests: [unique, not_null]
+      - name: marca
+        columns:
+          - name: id_marca
+            data_tests: [unique, not_null]
+      - name: producto
+        columns:
+          - name: id_producto
+            data_tests: [unique, not_null]
+      - name: cliente
+        columns:
+          - name: id_cliente
+            data_tests: [unique, not_null]
+      - name: venta
+        columns:
+          - name: id_venta
+            data_tests: [unique, not_null]
+      - name: venta_detalle
+        columns:
+          - name: id_detalle
+            data_tests: [unique, not_null]
+      - name: inventario_bodega
+        data_tests:
+          - dbt_utils.unique_combination_of_columns:
+              arguments:
+                combination_of_columns: [fecha_corte, id_sucursal, id_producto]
+      - name: proveedores_precios
+        columns:
+          - name: id_proveedor
+            data_tests: [not_null]
+          - name: id_producto
+            data_tests: [not_null]
+      - name: promociones
+        columns:
+          - name: id_promocion
+            data_tests: [unique, not_null]
+      - name: metas_ventas
+        data_tests:
+          - dbt_utils.unique_combination_of_columns:
+              arguments:
+                combination_of_columns: [periodo, id_sucursal]
+      - name: devoluciones
+        columns:
+          - name: id_devolucion
+            data_tests: [unique, not_null]
