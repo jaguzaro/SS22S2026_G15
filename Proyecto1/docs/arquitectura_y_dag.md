@@ -45,6 +45,7 @@ Decisiones:
 | `load_csv.py` | Carga los 5 CSV de `data/csv` a `raw` | `cargar_csv` |
 | `validate_raw.py` | Compara fuentes contra `raw` con `sql/validacion/10_carga_raw.sql` | `validar_raw` |
 | `inject_quality_cases.py` | Inserta en `raw` los 10 casos de `data/calidad` | `inyectar_casos_calidad` |
+| `validate_marts.py` | Reconcilia `raw` contra `marts` con `sql/validacion/30_reconciliacion.sql` | `validar_marts` |
 | `contrato.py` | Columnas de las 12 tablas de `raw`, en orden | — |
 | `config.py` | Conexiones, rutas y logging, desde variables de entorno | — |
 
@@ -100,6 +101,31 @@ Corre después de `validar_raw`, así la validación de conteos sigue siendo sob
 datos de las fuentes. La siguiente corrida normal reemplaza `raw` y elimina los
 casos.
 
+Con `modo_calidad` activo, la tarea `dbt_build` no corre `dbt build` sino
+`dbt run --select staging intermediate` seguido de `dbt test --select staging intermediate`.
+Con `dbt build` solo aparecían 8 de los 10 casos: dbt salta los nodos que dependen
+de un test fallido, así que la FK huérfana y la devolución mayor a lo vendido nunca
+llegaban a probarse. Construyendo primero las vistas y probando después, corren
+todos los tests y fallan los 10 casos. Los marts no se tocan en esta corrida.
+
+### Reconciliación de marts
+
+`validate_marts.py` ejecuta `sql/validacion/30_reconciliacion.sql`, que devuelve 17
+controles con el valor esperado (calculado sobre `raw`) y el obtenido (sobre
+`marts`):
+
+- `fct_ventas`: líneas, ventas distintas, suma de subtotal, suma de cantidad,
+  subtotal de ventas completadas y líneas que cayeron en un miembro desconocido
+  (-1) de fecha, cliente, sucursal, producto o tipo de venta (esperado 0).
+- `fct_inventario`, `fct_devoluciones` y `fct_metas_ventas`: filas y la suma de su
+  medida principal.
+- Dimensiones de sucursal, producto, cliente, promoción y proveedor: miembros sin
+  contar el -1.
+
+Si un control no cuadra, el log dice cuál y con qué valores, y la tarea termina
+con código 1. Así se detecta una pérdida o duplicación de filas entre capas que los
+tests de dbt no cubren, porque estos miran cada modelo por separado.
+
 ## 3. DAG `sgfood_elt`
 
 ```
@@ -114,17 +140,17 @@ inicio → crear_schemas_raw → ┬ extraer_oltp ┬ → validar_raw → inyect
 | `catchup` | `False` | No se recalculan días pasados: cada corrida recarga todo |
 | `max_active_runs` | 1 | Dos corridas a la vez harían `TRUNCATE` sobre la misma `raw` |
 | `retries` | 2, cada 30 s | Cubre caídas momentáneas de la base |
-| `retries` en `validar_raw`, `inyectar_casos_calidad`, `dbt_build` | 0 | Un fallo de datos no se arregla reintentando |
+| `retries` en `validar_raw`, `inyectar_casos_calidad`, `dbt_build`, `validar_marts` | 0 | Un fallo de datos no se arregla reintentando |
 | `on_failure_callback` | `registrar_fallo` | Deja en el log tarea, intento, corrida y enlace al log |
 | Parámetro `modo_calidad` | `False` | Activa la inyección de casos inválidos |
 
 Las tareas de dbt usan `dbt deps` y `dbt build` con
 `--project-dir /opt/airflow/dbt/sgfood --profiles-dir /opt/airflow/dbt/sgfood`, tal
 como quedó en el contrato. El DAG no conoce los modelos: si `dbt build` termina
-bien, la tarea queda en verde.
+bien, la tarea queda en verde. En modo calidad la tarea corre los dos comandos
+descritos en la sección anterior.
 
-`validar_marts` es un marcador hasta que existan los hechos de B3; ahí ejecutará
-`sql/validacion/30_reconciliacion.sql`.
+`validar_marts` corre `validate_marts.py` después de dbt.
 
 ## 4. Manual de implementación
 
@@ -160,9 +186,11 @@ python extract_load/crear_raw.py
 python extract_load/extract_oltp.py
 python extract_load/load_csv.py
 python extract_load/validate_raw.py
+python extract_load/validate_marts.py
 ```
 
-Toman la conexión de `.env` (`localhost:5433`).
+Toman la conexión de `.env` (`localhost:5433`). `validate_marts.py` necesita que
+dbt ya haya construido los marts.
 
 Empezar desde cero: `docker compose down -v && docker compose up -d`.
 
@@ -183,12 +211,53 @@ Empezar desde cero: `docker compose down -v && docker compose up -d`.
 | A4 | Primera corrida automática | 9 tareas en verde en 15 s; las 12 tablas con el `_loaded_at` de la corrida |
 | A4 | Dos corridas manuales seguidas | Ambas en verde; 3,209 líneas y 838,452.07 sin duplicar |
 | A4 | PostgreSQL detenido | `crear_schemas_raw` con 3 intentos, callback registra el fallo, el resto `upstream_failed` |
-| A5 | `modo_calidad=true` | Los 10 casos insertados con su incidencia en el log; la siguiente corrida normal los elimina |
+| A5 | `modo_calidad=true` (inyección) | Los 10 casos insertados con su incidencia en el log; la siguiente corrida normal los elimina |
+| A5 | Desde cero (`down -v`, `up`), corrida automática | 10 tareas en verde en 17 s; `dbt build` PASS=99 (26 modelos, 73 tests); reconciliación 17 de 17 |
+| A5 | `modo_calidad=true` completo | `dbt_build` falla con 11 tests (detalle abajo); `validar_marts` y `fin` quedan `upstream_failed` |
+| A5 | Corrida normal después de la de calidad | Todo en verde otra vez; ninguna fila de `casos_calidad_opcionales.csv` en `raw` |
+| A5 | Una fila borrada de `marts.fct_ventas` | `validate_marts.py` marca 4 controles (líneas 3,208 de 3,209, sumas), código 1 |
 
-Pendiente para cerrar A5, cuando B3 esté en `main`:
+Tests que atrapan cada caso de `casos_calidad_opcionales.csv` en la corrida de calidad:
 
-- [ ] `sql/validacion/30_reconciliacion.sql` y la tarea `validar_marts` real.
-- [ ] Corrida desde cero con todos los tests de dbt en verde.
-- [ ] Corrida con `modo_calidad=true` con `dbt_build` fallando en los tests esperados.
-- [ ] Capturas en `docs/evidencias/A_*.png`: grafo del DAG en verde, log de
-      `validar_raw`, corrida con fallo y corrida de calidad.
+| Caso | Incidencia | Test que falla |
+|---|---|---|
+| `cliente.id_cliente` vacío | NULL en identificador | `source_not_null_raw_cliente_id_cliente` y `not_null_stg_cliente_id_cliente` |
+| `producto.precio_lista` = -12.50 | Precio negativo | `dbt_utils_accepted_range_stg_producto_precio_lista__0` |
+| `venta.id_cliente` = 999999 | FK huérfana | `relationships_stg_venta_id_cliente__id_cliente__ref_stg_cliente_` |
+| `venta_detalle.cantidad` = 0 | Cantidad cero | `dbt_utils_accepted_range_stg_venta_detalle_cantidad__1` |
+| `venta_detalle.descuento` = 1.20 | Descuento mayor a 100 % | `dbt_utils_accepted_range_stg_venta_detalle_descuento__1__0` |
+| `inventario.stock_disponible` = -5 | Stock negativo | `dbt_utils_accepted_range_stg_inventario_bodega_stock_disponible__0` |
+| `inventario.fecha_vencimiento` = 2025-12-31 | Vencimiento anterior al corte | `vencimiento_posterior_al_corte` |
+| `proveedores_precios.costo_proveedor` vacío | Costo nulo | `not_null_stg_proveedores_precios_costo_proveedor` |
+| `metas_ventas.meta_ventas` = 0 | Meta cero | `dbt_utils_accepted_range_stg_metas_ventas_meta_ventas__False__0` |
+| `devoluciones.cantidad` = 99 | Devolución superior a venta | `devolucion_no_supera_lo_vendido` |
+
+Resumen de dbt en esa corrida: `dbt run` PASS=15, `dbt test` PASS=28 ERROR=11.
+
+### Capturas
+
+Corrida normal (`normal_post_calidad`), las 10 tareas en verde:
+
+![Grafo del DAG en verde](evidencias/A_dag_grafo_verde.png)
+
+Log de `validar_raw`: las 12 tablas de `raw` cuadran con sus fuentes.
+
+![Log de validar_raw](evidencias/A_log_validar_raw.png)
+
+Log de `validar_marts`: los 17 controles de reconciliación cuadran.
+
+![Log de validar_marts](evidencias/A_log_validar_marts.png)
+
+Corrida de calidad (`calidad_a5`): `dbt_build` falla y lo que sigue queda en
+`upstream_failed`.
+
+![Grafo de la corrida de calidad](evidencias/A_calidad_grafo_fallo.png)
+
+Log de `inyectar_casos_calidad`: los 10 casos insertados con su incidencia.
+
+![Log de la inyección de casos](evidencias/A_calidad_log_inyeccion.png)
+
+Log de `dbt_build` en la corrida de calidad, filtrado por `FAIL 1`: los 11 tests que
+atraparon los casos.
+
+![Tests de dbt que fallan](evidencias/A_calidad_log_dbt_tests.png)
