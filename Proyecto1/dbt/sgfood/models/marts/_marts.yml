@@ -104,3 +104,127 @@ models:
       - {name: canal, data_type: varchar}
       - {name: metodo_pago, data_type: varchar}
       - {name: estado, data_type: varchar}
+      
+  - name: fct_ventas
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: id_detalle
+        data_type: bigint
+        constraints: [{type: primary_key}]
+        data_tests: [unique, not_null]
+      - {name: id_venta, data_type: bigint}
+      - name: id_fecha
+        data_type: integer
+        constraints: [{type: foreign_key, to: ref('dim_fecha'), to_columns: [id_fecha]}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_fecha'), field: id_fecha}}
+      - name: id_cliente
+        data_type: integer
+        constraints: [{type: foreign_key, to: ref('dim_cliente'), to_columns: [id_cliente]}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_cliente'), field: id_cliente}}
+      - name: id_sucursal
+        data_type: integer
+        constraints: [{type: foreign_key, to: ref('dim_sucursal'), to_columns: [id_sucursal]}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_sucursal'), field: id_sucursal}}
+      - name: id_producto
+        data_type: integer
+        constraints: [{type: foreign_key, to: ref('dim_producto'), to_columns: [id_producto]}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_producto'), field: id_producto}}
+      - name: id_tipo_venta
+        data_type: integer
+        constraints: [{type: foreign_key, to: ref('dim_tipo_venta'), to_columns: [id_tipo_venta]}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_tipo_venta'), field: id_tipo_venta}}
+      - name: id_promocion
+        data_type: integer
+        constraints: [{type: foreign_key, to: ref('dim_promocion'), to_columns: [id_promocion]}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_promocion'), field: id_promocion}}
+      - {name: cantidad, data_type: integer}
+      - {name: precio_unitario, data_type: "numeric(12,2)"}
+      - {name: descuento, data_type: "numeric(5,4)"}
+      - {name: subtotal, data_type: "numeric(14,2)"}
+
+  - name: fct_inventario
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: id_fecha
+        data_type: integer
+        constraints: [{type: foreign_key, to: ref('dim_fecha'), to_columns: [id_fecha]}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_fecha'), field: id_fecha}}
+      - name: id_sucursal
+        data_type: integer
+        constraints: [{type: foreign_key, to: ref('dim_sucursal'), to_columns: [id_sucursal]}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_sucursal'), field: id_sucursal}}
+      - name: id_producto
+        data_type: integer
+        constraints: [{type: foreign_key, to: ref('dim_producto'), to_columns: [id_producto]}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_producto'), field: id_producto}}
+      - {name: stock_disponible, data_type: integer}
+      - {name: stock_minimo, data_type: integer}
+      - {name: stock_maximo, data_type: integer}
+      - {name: bajo_stock_minimo, data_type: boolean}
+      - {name: lote, data_type: varchar}
+      - {name: fecha_vencimiento, data_type: date}
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [id_fecha, id_sucursal, id_producto]
+
+  - name: fct_devoluciones
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: id_devolucion
+        data_type: integer
+        constraints: [{type: primary_key}]
+        data_tests: [unique, not_null]
+      - {name: id_venta, data_type: bigint}
+      - name: id_fecha
+        data_type: integer
+        constraints: [{type: foreign_key, to: ref('dim_fecha'), to_columns: [id_fecha]}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_fecha'), field: id_fecha}}
+      - name: id_producto
+        data_type: integer
+        constraints: [{type: foreign_key, to: ref('dim_producto'), to_columns: [id_producto]}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_producto'), field: id_producto}}
+      - name: id_sucursal
+        data_type: integer
+        constraints: [{type: foreign_key, to: ref('dim_sucursal'), to_columns: [id_sucursal]}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_sucursal'), field: id_sucursal}}
+      - {name: cantidad, data_type: integer}
+      - {name: motivo, data_type: varchar}
+
+  - name: fct_metas_ventas
+    config:
+      contract: {enforced: true}
+    columns:
+      - name: id_fecha
+        data_type: integer
+        constraints: [{type: foreign_key, to: ref('dim_fecha'), to_columns: [id_fecha]}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_fecha'), field: id_fecha}}
+      - name: id_sucursal
+        data_type: integer
+        constraints: [{type: foreign_key, to: ref('dim_sucursal'), to_columns: [id_sucursal]}]
+        data_tests:
+          - relationships: {arguments: {to: ref('dim_sucursal'), field: id_sucursal}}
+      - {name: periodo, data_type: varchar}
+      - {name: meta_ventas, data_type: "numeric(14,2)"}
+      - {name: meta_unidades, data_type: integer}
+    data_tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [id_fecha, id_sucursal]
+
