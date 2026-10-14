@@ -1,0 +1,70 @@
+version: 2
+
+models:
+  - name: stg_cliente
+    columns:
+      - name: id_cliente
+        data_tests: [not_null]
+
+  - name: stg_producto
+    columns:
+      - name: precio_lista
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0}
+      - name: costo_base
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0}
+
+  - name: stg_venta
+    columns:
+      - name: id_cliente
+        data_tests:
+          - relationships: {arguments: {to: ref('stg_cliente'), field: id_cliente}}
+      - name: canal
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['MAYORISTA', 'TELEVENTA', 'TIENDA', 'WEB']}
+      - name: metodo_pago
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['CRÉDITO', 'EFECTIVO', 'TARJETA', 'TRANSFERENCIA']}
+      - name: estado
+        data_tests:
+          - accepted_values:
+              arguments: {values: ['ANULADA', 'COMPLETADA', 'PENDIENTE']}
+
+  - name: stg_venta_detalle
+    columns:
+      - name: cantidad
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 1}
+      - name: descuento
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, max_value: 1}
+
+  - name: stg_inventario_bodega
+    columns:
+      - name: stock_disponible
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0}
+
+  - name: stg_proveedores_precios
+    columns:
+      - name: costo_proveedor
+        data_tests:
+          - not_null
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, inclusive: false}
+
+  - name: stg_metas_ventas
+    columns:
+      - name: meta_ventas
+        data_tests:
+          - dbt_utils.accepted_range:
+              arguments: {min_value: 0, inclusive: false}
+            
