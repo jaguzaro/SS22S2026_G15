@@ -89,11 +89,21 @@ with DAG(
 
     dbt_build = BashOperator(
         task_id="dbt_build",
-        bash_command=f"dbt build {DBT_ARGS}",
+        bash_command=(
+            "{% if params.modo_calidad %}"
+            f"dbt run --select staging intermediate {DBT_ARGS} && dbt test --select staging intermediate {DBT_ARGS}"
+            "{% else %}"
+            f"dbt build {DBT_ARGS}"
+            "{% endif %}"
+        ),
         retries=0,
     )
 
-    validar_marts = EmptyOperator(task_id="validar_marts")
+    validar_marts = BashOperator(
+        task_id="validar_marts",
+        bash_command=f"cd {EXTRACT_LOAD} && python validate_marts.py",
+        retries=0,
+    )
 
     fin = EmptyOperator(task_id="fin")
 
