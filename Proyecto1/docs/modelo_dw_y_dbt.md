@@ -185,4 +185,11 @@ Las consultas de validación se ejecutan con:
 docker exec -i sgfood-postgres psql -U sgfood -d sgfood_dw < sql/validacion/20_consultas_analiticas.sql
 ```
 
-Evidencias en `docs/evidencias/`: `B_dbt_build_verde.png`, `B_tests_casos_invalidos.png` y `B_lineage.png`.
+
+## 10. Evidencias
+
+![dbt build en verde](evidencias/B_dbt_build_verde.png)
+
+![Tests con casos inválidos](evidencias/B_tests_casos_invalidos.png)
+
+![Lineage](evidencias/B_lineage.png)
