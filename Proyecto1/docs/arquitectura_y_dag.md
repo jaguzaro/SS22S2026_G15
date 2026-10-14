@@ -1,157 +1,172 @@
-# Arquitectura, extracción, carga y DAG de Airflow
+# Extracción, carga y orquestación con Airflow
 
-Responsable: Joel (rol A). Cubre las fases A1 a A5 del
-[plan de trabajo](plan_de_trabajo.md).
+Este documento explica cómo llegan los datos de SG-Food al Data Warehouse y cómo
+Airflow coordina todo el flujo. Lo que pasa después de la capa `raw` (modelos dbt,
+dimensiones y hechos) está en [modelo_dw_y_dbt.md](modelo_dw_y_dbt.md).
 
-## 1. Arquitectura
+## Arquitectura
 
-```
-┌───────────────────────── docker compose (proyecto sgfood) ─────────────────────────┐
-│                                                                                    │
-│  sgfood-postgres (PostgreSQL 16, localhost:5433)                                   │
-│    ├─ sgfood_oltp   schema oltp_sgfood   ← data/oltp/sgfood_oltp.sql               │
-│    └─ sgfood_dw     schemas raw · staging · intermediate · marts                   │
-│                                                                                    │
-│  sgfood-airflow (Airflow 3.3.2 standalone, localhost:8080)                         │
-│    ├─ /opt/airflow/extract_load   scripts Python (este documento)                  │
-│    ├─ /opt/airflow/dbt/sgfood     proyecto dbt (rol B), dbt en /opt/dbt-venv       │
-│    └─ /opt/airflow/data, /sql     fuentes y DDL, solo lectura                      │
-│                                                                                    │
-│  sgfood-airflow-db (PostgreSQL 16)   metadatos de Airflow, separado del DW         │
-└────────────────────────────────────────────────────────────────────────────────────┘
-```
+Todo corre con Docker Compose en tres contenedores:
 
-Decisiones:
+- `sgfood-postgres` (PostgreSQL 16, puerto 5433). Tiene dos bases:
+  - `sgfood_oltp`: la base transaccional de origen, cargada desde
+    `data/oltp/sgfood_oltp.sql`.
+  - `sgfood_dw`: el Data Warehouse, con los schemas `raw`, `staging`,
+    `intermediate` y `marts`.
+- `sgfood-airflow` (Airflow 3, puerto 8080). Ejecuta el DAG, los scripts de Python y
+  dbt.
+- `sgfood-airflow-db`: base interna de Airflow, separada del Data Warehouse.
 
-- **Fuente transaccional y DW en el mismo servidor, en bases distintas.** El
-  enunciado pide extraer de una base transaccional; `sgfood_oltp` hace ese papel y
-  `sgfood_dw` nunca la consulta directamente. Toda la información entra por `raw`.
-- **Metadatos de Airflow en su propio contenedor.** Así un `down -v` del DW no
-  borra el historial de corridas y Airflow no comparte usuario con los datos.
-- **dbt en un entorno virtual aparte** (`/opt/dbt-venv`). Airflow y dbt fijan
-  versiones distintas de las mismas librerías; separados no chocan. `dbt` queda en
-  el `PATH` del contenedor.
-- **Las tareas llaman scripts, no funciones.** Cada paso es un script de
-  `extract_load/` que se puede correr igual desde la terminal o desde Airflow, y
-  comunica éxito o fallo por su código de salida. Lo que se prueba a mano es lo
-  mismo que corre en el DAG.
-
-## 2. Scripts de `extract_load/`
-
-| Script | Qué hace | Tarea del DAG |
-|---|---|---|
-| `crear_raw.py` | Aplica `sql/01_raw_ddl.sql` (idempotente) | `crear_schemas_raw` |
-| `extract_oltp.py` | Copia las 7 tablas de `sgfood_oltp` a `raw` | `extraer_oltp` |
-| `load_csv.py` | Carga los 5 CSV de `data/csv` a `raw` | `cargar_csv` |
-| `validate_raw.py` | Compara fuentes contra `raw` con `sql/validacion/10_carga_raw.sql` | `validar_raw` |
-| `inject_quality_cases.py` | Inserta en `raw` los 10 casos de `data/calidad` | `inyectar_casos_calidad` |
-| `contrato.py` | Columnas de las 12 tablas de `raw`, en orden | — |
-| `config.py` | Conexiones, rutas y logging, desde variables de entorno | — |
-
-Comportamiento común:
-
-- **Reemplazo completo en una transacción.** Cada carga hace `TRUNCATE` + `COPY`
-  de todas sus tablas dentro de una sola transacción. Si algo falla a mitad de
-  camino, `raw` queda exactamente como estaba. Volver a correr da el mismo
-  resultado.
-- **`_loaded_at` compartido.** Las tres tareas reciben
-  `--loaded-at` con la hora de inicio de la corrida del DAG. `validate_raw.py`
-  exige que las 12 tablas tengan un único `_loaded_at` y que sea el de la corrida
-  actual, así detecta una tabla que se quedó con datos de una corrida anterior.
-- **`_source`.** `sgfood_oltp.oltp_sgfood.<tabla>` para la base,
-  el nombre del archivo para los CSV y `casos_calidad_opcionales.csv` para los
-  casos inyectados.
-- **Logging** a consola (lo captura Airflow) y a `logs/extract_load.log`
-  (en el contenedor, `airflow/logs/sgfood/extract_load.log`).
-- **Código de salida 1** ante cualquier error, con un mensaje que dice qué falló.
-
-### Extracción de la base transaccional
-
-`COPY (SELECT ...) TO STDOUT` en la fuente conectado directo a `COPY ... FROM STDIN`
-en el DW: los datos pasan en bloques sin convertirse a objetos Python, y las
-columnas de auditoría se agregan en el mismo `SELECT`. La conexión a la fuente es
-de solo lectura.
-
-### Carga de CSV
-
-- Lectura con `utf-8-sig`: los cinco archivos traen BOM y sin esto la primera
-  columna se llamaría `﻿fecha_corte`.
-- Antes de tocar la base se leen los cinco archivos y se compara el encabezado de
-  cada uno con `contrato.py`. Un encabezado distinto detiene la carga completa.
-- Celdas vacías se cargan como `NULL`. Los tipos los aplica PostgreSQL al hacer
-  `COPY`; un valor que no encaja (`setenta` en una columna entera) hace fallar la
-  transacción entera.
-- `casos_calidad_opcionales.csv` no se carga en la corrida normal.
-
-### Corrida de calidad
-
-`inject_quality_cases.py` lee `data/calidad/casos_calidad_opcionales.csv` y, por
-cada caso, copia una fila válida de la tabla, le pone el valor inválido en el campo
-indicado y la inserta. Para que cada caso active solo la prueba que le corresponde:
-
-- Las tablas con llave reciben una llave nueva (máximo + 1), así no se duplica
-  ninguna existente. Al producto también se le da un SKU nuevo.
-- Las tablas sin llave simple reciben un periodo nuevo: inventario con corte
-  2026-09-30, metas en 2026-09, precio de proveedor con vigencia un día después.
-- En las líneas de venta se recalcula el subtotal con los valores inválidos.
-- La fila conserva el `_loaded_at` de la corrida.
-
-Corre después de `validar_raw`, así la validación de conteos sigue siendo sobre los
-datos de las fuentes. La siguiente corrida normal reemplaza `raw` y elimina los
-casos.
-
-## 3. DAG `sgfood_elt`
+El flujo es:
 
 ```
-inicio → crear_schemas_raw → ┬ extraer_oltp ┬ → validar_raw → inyectar_casos_calidad
-                             └ cargar_csv   ┘
+sgfood_oltp (7 tablas) ─┐
+                        ├─ Python ─→ raw ─→ dbt ─→ staging → intermediate → marts
+data/csv (5 archivos) ──┘
+```
+
+Por qué lo armamos así:
+
+- El Data Warehouse nunca consulta la base transaccional directamente. Todo entra
+  primero a `raw`, tal como viene de la fuente, y de ahí lo transforma dbt.
+- Cada tarea del DAG llama a un script de Python. El mismo script se puede correr a
+  mano desde la terminal, así que lo que probamos fuera de Airflow es lo mismo que
+  corre dentro.
+- Airflow guarda su historial en una base aparte, para que borrar el Data Warehouse
+  no borre las corridas.
+
+## Extracción y carga con Python
+
+Los scripts están en `extract_load/`:
+
+| Script | Qué hace |
+|---|---|
+| `crear_raw.py` | Crea las 12 tablas de `raw` con `sql/01_raw_ddl.sql` |
+| `extract_oltp.py` | Copia las 7 tablas de la base transaccional a `raw` |
+| `load_csv.py` | Carga los 5 archivos CSV a `raw` |
+| `validate_raw.py` | Compara cuántas filas hay en la fuente y en `raw` |
+| `validate_marts.py` | Compara conteos y totales de `raw` contra los marts |
+| `inject_quality_cases.py` | Inserta datos inválidos para probar las pruebas de calidad |
+| `config.py`, `contrato.py` | Conexiones y estructura esperada de cada tabla |
+
+Cómo funciona la carga:
+
+- Cada tabla de `raw` tiene las mismas columnas que su fuente, más dos de control:
+  `_source` (de dónde vino la fila) y `_loaded_at` (cuándo se cargó).
+- Cada corrida vacía las tablas y las vuelve a llenar dentro de una sola
+  transacción. Si algo falla a mitad de camino, `raw` queda como estaba. Por eso se
+  puede correr las veces que haga falta sin duplicar datos.
+- La extracción de la base transaccional usa `COPY` de PostgreSQL, que mueve los
+  datos en bloque.
+- Los CSV vienen con BOM, así que se leen como `utf-8-sig`. Antes de cargar se
+  revisa que el encabezado de cada archivo sea el esperado; si no lo es, la carga
+  se detiene.
+- Las conexiones se toman de variables de entorno (archivo `.env`), no están
+  escritas en el código.
+- Si algo falla, el script deja el error en el log y termina con código 1. Así
+  Airflow marca la tarea como fallida.
+
+## Validaciones
+
+Hay dos validaciones propias, además de las pruebas de dbt:
+
+1. `validar_raw`, después de la carga: revisa que las 12 tablas de `raw` tengan la
+   misma cantidad de filas que su fuente y que todas sean de la corrida actual.
+   Usa `sql/validacion/10_carga_raw.sql`.
+2. `validar_marts`, después de dbt: compara `raw` contra los marts con
+   `sql/validacion/30_reconciliacion.sql`. Revisa, por ejemplo, que `fct_ventas`
+   tenga las 3,209 líneas y sume 838,452.07, igual que en `raw`, y que ninguna
+   venta haya quedado sin cliente, producto o sucursal.
+
+Si cualquiera de las dos encuentra una diferencia, la tarea falla y el log dice qué
+no cuadró.
+
+## DAG de Airflow
+
+El DAG se llama `sgfood_elt` y está en `airflow/dags/sgfood_elt.py`:
+
+```
+inicio → crear_schemas_raw → extraer_oltp ┐
+                           → cargar_csv   ┴→ validar_raw → inyectar_casos_calidad
        → dbt_deps → dbt_build → validar_marts → fin
 ```
 
-| Configuración | Valor | Por qué |
-|---|---|---|
-| `schedule` | `@daily` | Ejecución programada (opcional recomendado del enunciado) |
-| `catchup` | `False` | No se recalculan días pasados: cada corrida recarga todo |
-| `max_active_runs` | 1 | Dos corridas a la vez harían `TRUNCATE` sobre la misma `raw` |
-| `retries` | 2, cada 30 s | Cubre caídas momentáneas de la base |
-| `retries` en `validar_raw`, `inyectar_casos_calidad`, `dbt_build` | 0 | Un fallo de datos no se arregla reintentando |
-| `on_failure_callback` | `registrar_fallo` | Deja en el log tarea, intento, corrida y enlace al log |
-| Parámetro `modo_calidad` | `False` | Activa la inyección de casos inválidos |
+| Tarea | Qué hace |
+|---|---|
+| `crear_schemas_raw` | Crea las tablas de `raw` si no existen |
+| `extraer_oltp` y `cargar_csv` | Cargan la base y los CSV, en paralelo |
+| `validar_raw` | Valida la carga |
+| `inyectar_casos_calidad` | Solo hace algo si se activa el modo calidad |
+| `dbt_deps` | Instala los paquetes de dbt |
+| `dbt_build` | Construye los modelos y corre las pruebas de dbt |
+| `validar_marts` | Reconcilia `raw` con los marts |
 
-Las tareas de dbt usan `dbt deps` y `dbt build` con
-`--project-dir /opt/airflow/dbt/sgfood --profiles-dir /opt/airflow/dbt/sgfood`, tal
-como quedó en el contrato. El DAG no conoce los modelos: si `dbt build` termina
-bien, la tarea queda en verde.
+Configuración:
 
-`validar_marts` es un marcador hasta que existan los hechos de B3; ahí ejecutará
-`sql/validacion/30_reconciliacion.sql`.
+- Corre todos los días (`@daily`) y también se puede lanzar a mano.
+- No recupera días pasados (`catchup=False`), porque cada corrida recarga todo.
+- Solo una corrida a la vez, para que dos cargas no se pisen.
+- Las tareas de conexión reintentan 2 veces, con 30 segundos de espera. Las
+  validaciones y dbt no reintentan: si los datos están mal, reintentar no lo
+  arregla.
+- Cuando una tarea falla, una función (`registrar_fallo`) deja en el log qué tarea
+  falló, en qué intento y el enlace a su log.
 
-## 4. Manual de implementación
+### Modo calidad
 
-Requisitos: Docker Desktop (o Docker Engine con Compose v2). Para correr los
-scripts fuera de Docker, Python 3.10 a 3.13.
+El enunciado incluye un archivo con 10 casos de datos inválidos
+(`data/calidad/casos_calidad_opcionales.csv`). Para comprobar que las pruebas de
+dbt los detectan, el DAG tiene el parámetro `modo_calidad`. Cuando se activa:
 
-```bash
-cd Proyecto1
-cp .env.example .env
-docker compose up -d --build
-```
+1. Después de la carga normal, `inyectar_casos_calidad` inserta los 10 casos en
+   `raw`.
+2. `dbt_build` construye staging e intermediate y luego corre las pruebas. Se hace
+   en dos pasos porque con `dbt build` algunas pruebas se saltaban al fallar las
+   anteriores, y así se prueban los 10 casos.
+3. La tarea falla, como se espera, y el log muestra qué prueba atrapó cada caso.
 
-La primera vez construye la imagen de Airflow (unos minutos). Cuando
-`docker compose ps` muestre `sgfood-airflow` como `healthy`:
+La siguiente corrida normal vuelve a cargar `raw` desde las fuentes y elimina los
+casos inválidos.
 
-- Interfaz de Airflow: http://localhost:8080 (sin usuario, modo desarrollo).
-- El DAG `sgfood_elt` aparece activo y corre una vez al detectarse.
-- Para correrlo a mano: botón *Trigger* en la interfaz, o
-  `docker exec sgfood-airflow airflow dags trigger sgfood_elt`.
-- Corrida de calidad: *Trigger* con `{"modo_calidad": true}`, o
-  `docker exec sgfood-airflow airflow dags trigger sgfood_elt -c '{"modo_calidad": true}'`.
+## Manual de implementación
 
-Si los puertos 5433 u 8080 están ocupados, cambiar `PG_HOST_PORT` o
-`AIRFLOW_HOST_PORT` en `.env`. En Linux, poner `AIRFLOW_UID=$(id -u)` para que los
-logs queden con el usuario propio.
+Requisitos: Docker Desktop (o Docker Engine con Compose v2).
 
-Correr los scripts desde la terminal, sin Airflow:
+1. Entrar a la carpeta y crear el archivo de configuración:
+
+   ```bash
+   cd Proyecto1
+   cp .env.example .env
+   ```
+
+2. Levantar los contenedores. La primera vez tarda unos minutos porque construye la
+   imagen de Airflow:
+
+   ```bash
+   docker compose up -d --build
+   ```
+
+3. Esperar a que `docker compose ps` muestre `sgfood-airflow` como `healthy` y abrir
+   http://localhost:8080. No pide usuario.
+
+4. El DAG `sgfood_elt` aparece activo y corre solo la primera vez. Para correrlo de
+   nuevo, usar el botón *Trigger* o:
+
+   ```bash
+   docker exec sgfood-airflow airflow dags trigger sgfood_elt
+   ```
+
+5. Para la corrida de calidad, usar *Trigger* con `{"modo_calidad": true}` o:
+
+   ```bash
+   docker exec sgfood-airflow airflow dags trigger sgfood_elt -c '{"modo_calidad": true}'
+   ```
+
+Si el puerto 5433 o el 8080 ya está ocupado, cambiar `PG_HOST_PORT` o
+`AIRFLOW_HOST_PORT` en `.env`. Para empezar desde cero:
+`docker compose down -v && docker compose up -d`.
+
+Los scripts también se pueden correr sin Airflow (Python 3.10 a 3.13):
 
 ```bash
 python3.12 -m venv .venv && source .venv/bin/activate
@@ -162,33 +177,44 @@ python extract_load/load_csv.py
 python extract_load/validate_raw.py
 ```
 
-Toman la conexión de `.env` (`localhost:5433`).
+## Evidencia de ejecución
 
-Empezar desde cero: `docker compose down -v && docker compose up -d`.
+Resultados de las pruebas:
 
-## 5. Evidencia de las pruebas
+- Carga: las 7 tablas de la base (6 sucursales, 8 categorías, 10 marcas,
+  80 productos, 250 clientes, 1,200 ventas y 3,209 líneas de venta) y los 5 CSV
+  (3,840 registros de inventario, 103 precios de proveedor, 30 promociones, 48 metas
+  y 80 devoluciones) llegan completos a `raw`.
+- Corrida desde cero: las 10 tareas en verde en unos 17 segundos. dbt construyó 26
+  modelos y pasaron sus 73 pruebas.
+- Dos corridas seguidas dan los mismos números, sin duplicar filas.
+- Con PostgreSQL apagado, la tarea reintenta, falla y deja el error en el log; las
+  tareas siguientes no corren.
+- Al borrar una fila de `raw` o de los marts, la validación correspondiente falla y
+  dice qué tabla no cuadra.
+- En la corrida de calidad, los 10 casos inválidos son detectados por las pruebas
+  de dbt.
 
-| Fase | Prueba | Resultado |
-|---|---|---|
-| A1 | Extracción | 6 / 8 / 10 / 80 / 250 / 1,200 / 3,209 filas; `SUM(subtotal)` = 838,452.07 |
-| A1 | Segunda corrida | Mismos conteos, un solo `_loaded_at` por tabla |
-| A1 | Base apagada | Error de conexión claro, código 1 |
-| A1 | Tabla fuente renombrada a mitad de la extracción | Código 1, `raw` sin cambios (las tablas ya copiadas se revierten) |
-| A2 | Carga | 3,840 / 103 / 30 / 48 / 80 filas; `SUM(meta_ventas)` = 9,257,592.56; primera columna `fecha_corte` sin BOM |
-| A2 | Encabezado alterado (`stock_min`) | Código 1, no se conecta a la base |
-| A2 | Valor no numérico (`setenta`) | Código 1, `raw` sin cambios |
-| A3 | Después de A1 + A2 | Las 12 tablas cuadran |
-| A3 | Una fila borrada de `raw.venta` | `raw.venta: 1199 filas, fuente 1200 (diferencia -1)`, código 1 |
-| A3 | `--loaded-at` distinto al cargado | Señala cada tabla que no es de esta corrida |
-| A4 | Primera corrida automática | 9 tareas en verde en 15 s; las 12 tablas con el `_loaded_at` de la corrida |
-| A4 | Dos corridas manuales seguidas | Ambas en verde; 3,209 líneas y 838,452.07 sin duplicar |
-| A4 | PostgreSQL detenido | `crear_schemas_raw` con 3 intentos, callback registra el fallo, el resto `upstream_failed` |
-| A5 | `modo_calidad=true` | Los 10 casos insertados con su incidencia en el log; la siguiente corrida normal los elimina |
+Corrida normal con todas las tareas en verde:
 
-Pendiente para cerrar A5, cuando B3 esté en `main`:
+![Grafo del DAG en verde](evidencias/A_dag_grafo_verde.png)
 
-- [ ] `sql/validacion/30_reconciliacion.sql` y la tarea `validar_marts` real.
-- [ ] Corrida desde cero con todos los tests de dbt en verde.
-- [ ] Corrida con `modo_calidad=true` con `dbt_build` fallando en los tests esperados.
-- [ ] Capturas en `docs/evidencias/A_*.png`: grafo del DAG en verde, log de
-      `validar_raw`, corrida con fallo y corrida de calidad.
+Validación de la carga en `raw`:
+
+![Log de validar_raw](evidencias/A_log_validar_raw.png)
+
+Reconciliación de `raw` contra los marts:
+
+![Log de validar_marts](evidencias/A_log_validar_marts.png)
+
+Corrida de calidad: `dbt_build` falla y las tareas siguientes no corren.
+
+![Grafo de la corrida de calidad](evidencias/A_calidad_grafo_fallo.png)
+
+Los 10 casos inválidos insertados:
+
+![Log de la inyección de casos](evidencias/A_calidad_log_inyeccion.png)
+
+Pruebas de dbt que detectaron los casos:
+
+![Pruebas de dbt que fallan](evidencias/A_calidad_log_dbt_tests.png)
