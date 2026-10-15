@@ -60,11 +60,11 @@ Diagrama estrella, decisiones de diseño y lista de pruebas: [docs/modelo_dw_y_d
 
 - **ELT con `raw` intacta:** el DW nunca consulta la base transaccional; todo entra a `raw` y dbt transforma.
 - **Cargas idempotentes:** `TRUNCATE` + `INSERT` en una transacción; se puede repetir sin duplicar.
-- **Staging sin filtros:** las pruebas de calidad pueden detectar datos inválidos.
+- **Staging sin filtros:** los datos inválidos llegan hasta las pruebas de calidad, que son las que los detectan.
 - **Ventas ANULADA y PENDIENTE conservadas:** el estado vive en `dim_tipo_venta` y las consultas filtran COMPLETADA. Concilia con la fuente (838,452.07; COMPLETADA 780,201.72).
 - **Costo vigente:** por producto, la fila de `fecha_vigencia` más reciente.
 - **Promoción por línea:** si se solapan, gana la de mayor descuento.
-- **Miembro -1 DESCONOCIDO** en cada dimensión para no perder filas.
+- **Miembro -1 (DESCONOCIDO)** en cada dimensión: una venta sin cliente, producto o sucursal no se pierde.
 - **dbt aislado de Airflow:** dbt vive en un entorno virtual aparte dentro de la imagen.
 
 ## 5. Estructura del repositorio
@@ -81,40 +81,39 @@ sql/                      01_raw_ddl.sql, 02_dw_ddl.sql, validacion/
 extract_load/             scripts Python de extracción, carga y validación
 airflow/dags/             DAG sgfood_elt
 dbt/sgfood/               proyecto dbt (models, tests, macros)
-scripts/                  utilidades de verificación
 docs/                     documentación técnica, enunciado y evidencias
 ```
 
 ## 6. Manual de implementación
 
-Requisitos: Docker Desktop (o Docker Engine con Compose v2). En Windows, usar Git Bash para los scripts `.sh`.
+Requisitos: Docker Desktop (o Docker Engine con Compose v2).
 
 1. Configuración:
 
-```bash
+   ```bash
    cd Proyecto1
    cp .env.example .env
-```
+   ```
 
 2. Levantar los contenedores (la primera vez construye la imagen de Airflow):
 
-```bash
+   ```bash
    docker compose up -d --build
-```
+   ```
 
 3. Esperar a que `sgfood-airflow` esté `healthy` en `docker compose ps` y abrir http://localhost:8080 (no pide usuario).
 
 4. El DAG `sgfood_elt` corre solo la primera vez. Para repetirlo:
 
-```bash
+   ```bash
    docker exec sgfood-airflow airflow dags trigger sgfood_elt
-```
+   ```
 
 5. Corrida de calidad (los 10 casos inválidos; `dbt_build` debe fallar):
 
-```bash
+   ```bash
    docker exec sgfood-airflow airflow dags trigger sgfood_elt -c '{"modo_calidad": true}'
-```
+   ```
 
 Si el puerto 5433 u 8080 está ocupado, cambiar `PG_HOST_PORT` o `AIRFLOW_HOST_PORT` en `.env`. Para empezar de cero: `docker compose down -v && docker compose up -d`.
 
@@ -160,7 +159,7 @@ El DDL entregable del Data Warehouse está en `sql/02_dw_ddl.sql` (se ejecuta de
 
 ## 8. Resultados de referencia
 
-| Señal | Valor |
+| Dato | Valor |
 |---|---|
 | Líneas de venta | 3,209 |
 | Suma de subtotal (todas) | 838,452.07 |
