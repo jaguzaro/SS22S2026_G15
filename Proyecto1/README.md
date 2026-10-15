@@ -4,7 +4,7 @@ Curso Seminario de Sistemas 2 · Semestre 2026-1 · Grupo 15
 
 | Integrante | Usuario / carnet | Rol |
 |---|---|---|
-| Joel | jguzaro | A · Ingesta y orquestación (Python + Airflow) |
+| Joel | 202201395 | A · Ingesta y orquestación (Python + Airflow) |
 | Alvaro | 199817948 | B · Modelado y calidad (dbt + Data Warehouse) |
 
 ## 1. Descripción
