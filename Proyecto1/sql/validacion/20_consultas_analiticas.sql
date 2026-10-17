@@ -110,3 +110,45 @@ GROUP BY 1, 2
 ORDER BY 1, 2;
 -- Resultado: 16 filas (8 categorias x CON/SIN PROMOCION). Mayor ingreso con promocion:
 -- Snacks 44391.98 (144 lineas). Lineas totales COMPLETADA = 3014 (ver suma de columna lineas).
+
+-- 7. Resumen de ventas por estado (todas las ventas, con total)
+SELECT COALESCE(tv.estado, 'TODOS LOS ESTADOS') AS estado,
+       COUNT(DISTINCT f.id_venta) AS ventas_distintas,
+       COUNT(*) AS lineas_detalle,
+       SUM(f.cantidad) AS suma_cantidades,
+       SUM(f.subtotal) AS suma_subtotal
+FROM marts.fct_ventas f
+JOIN marts.dim_tipo_venta tv ON tv.id_tipo_venta = f.id_tipo_venta
+GROUP BY ROLLUP (tv.estado)
+ORDER BY GROUPING(tv.estado), suma_subtotal DESC;
+-- Resultado: 4 filas. COMPLETADA 1129 ventas, 3014 lineas, 17963 uds, 780201.72;
+-- ANULADA 48, 139, 848, 41769.16; PENDIENTE 23, 56, 363, 16481.19;
+-- TODOS LOS ESTADOS 1200, 3209, 19174, 838452.07.
+
+-- 8. Ventas completadas por mes (periodo 2026-01-01 a 2026-08-31)
+SELECT COALESCE(d.nombre_mes, 'TOTAL') AS mes,
+       COUNT(DISTINCT f.id_venta) AS ventas_completadas,
+       SUM(f.cantidad) AS suma_cantidades,
+       SUM(f.subtotal) AS importe
+FROM marts.fct_ventas f
+JOIN marts.dim_fecha d ON d.id_fecha = f.id_fecha
+JOIN marts.dim_tipo_venta tv ON tv.id_tipo_venta = f.id_tipo_venta
+WHERE tv.estado = 'COMPLETADA'
+GROUP BY ROLLUP ((d.mes, d.nombre_mes))
+ORDER BY GROUPING(d.mes), d.mes;
+-- Resultado: 9 filas (enero a agosto + TOTAL). Enero 169 ventas, 2842 uds, 127301.01;
+-- Agosto 126, 2105, 88093.79. TOTAL 1129 ventas, 17963 uds, 780201.72.
+
+-- 9. Ventas completadas por sucursal
+SELECT COALESCE(s.nombre_sucursal, 'TOTAL') AS sucursal,
+       COUNT(DISTINCT f.id_venta) AS ventas_completadas,
+       SUM(f.subtotal) AS importe
+FROM marts.fct_ventas f
+JOIN marts.dim_sucursal s ON s.id_sucursal = f.id_sucursal
+JOIN marts.dim_tipo_venta tv ON tv.id_tipo_venta = f.id_tipo_venta
+WHERE tv.estado = 'COMPLETADA'
+GROUP BY ROLLUP (s.nombre_sucursal)
+ORDER BY GROUPING(s.nombre_sucursal), importe DESC;
+-- Resultado: 7 filas. Villa Nueva 203 / 149831.60, Central Guatemala 194 / 139839.95,
+-- Escuintla 195 / 129392.30, Mixco 181 / 122146.08, Amatitlan 182 / 120463.79,
+-- Antigua 174 / 118528.00. TOTAL 1129 / 780201.72.

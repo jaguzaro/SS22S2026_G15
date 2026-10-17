@@ -146,7 +146,8 @@ La corrida del DAG con los 10 casos, con sus capturas, está en
 ## Consultas analíticas
 
 Están en `sql/validacion/20_consultas_analiticas.sql`, con el resultado esperado
-escrito debajo de cada una. Todas cuentan solo ventas completadas.
+escrito debajo de cada una. Como no se hizo dashboard, estas consultas son las que
+muestran los indicadores. Salvo la 7, todas cuentan solo ventas completadas.
 
 1. Ventas reales contra la meta, por sucursal y mes.
 2. Los 10 productos con más ingreso y los 10 con más margen.
@@ -154,6 +155,9 @@ escrito debajo de cada una. Todas cuentan solo ventas completadas.
 4. Tasa de devolución por categoría y por motivo.
 5. Productos bajo el stock mínimo en el último corte (50 casos).
 6. Ventas con promoción contra ventas sin promoción, por categoría.
+7. Resumen por estado: completadas, anuladas, pendientes y el total (838,452.07).
+8. Ventas completadas por mes, de enero a agosto de 2026.
+9. Ventas completadas por sucursal.
 
 ## DDL del Data Warehouse
 
