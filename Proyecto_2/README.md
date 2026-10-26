@@ -84,9 +84,32 @@ _Pendiente._
 
 ## Informe visual
 
-_Enlace pendiente._
+Tablero en Looker Studio, conectado a BigQuery: https://lookerstudio.google.com/reporting/ab446e94-9f4f-4c79-9f0e-c943b9641a59
+
+- **Exploración:** viajes por día con promedio móvil de 7 días, mapa de calor de viajes por hora y día de la semana, tipo de pago por mes y las 12 zonas con más viajes.
+- **Optimización:** MB procesados por las cuatro consultas en la tabla pública, sin optimizar y optimizada.
+
+![Tendencia diaria](evidencias/A_tablero_1_tendencia.jpg)
+![Mapa de calor por hora y día](evidencias/A_tablero_2_mapa_calor.jpg)
+![Tipo de pago y zonas](evidencias/A_tablero_3_pagos_zonas.jpg)
+![Comparación de bytes](evidencias/A_tablero_4_optimizacion.jpg)
 
 ## Evidencias
+
+Conteo de registros del dataset público:
+
+![Conteo de registros](evidencias/A_conteo_registros.jpg)
+
+Partición por fecha y clustering de `viajes_limpios` (32,875,149 filas en 334 particiones):
+
+![Partición y clustering](evidencias/A_particion_clustering.jpg)
+
+La misma consulta de una semana en la tabla pública (829.85 MB) y en la optimizada (11.29 MB):
+
+![Consulta estándar](evidencias/A_bytes_consulta_estandar.jpg)
+![Consulta optimizada](evidencias/A_bytes_consulta_optimizada.jpg)
+
+Resultados completos en texto:
 
 - `evidencias/A_resultados_exploracion.txt`: resultados de la exploración.
 - `evidencias/A_comparacion_bytes.csv`: bytes procesados y tiempo de cada consulta comparada.
