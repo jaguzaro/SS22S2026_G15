@@ -28,7 +28,12 @@ Todo corre en el proyecto `ss2-g15-nyc-taxi`, dataset `nyc_taxi_g15`, en la regi
 | `sql/01_exploracion.sql` | Exploración: estructura, volumen, calidad, distribuciones y patrones |
 | `sql/02_transformaciones.sql` | Tablas resumidas para el tablero |
 | `sql/03_optimizacion.sql` | Comparación de consultas estándar contra optimizadas |
-| `ml/` | Modelos de BigQuery ML |
+| `ml/01_features.sql` | Crea `b_viajes_ml`: variables, split y muestra para los modelos |
+| `ml/02_modelos.sql` | `CREATE MODEL` de los cinco modelos con sus hiperparámetros |
+| `ml/03_evaluacion.sql` | Métricas, diagnóstico, prueba en noviembre e iteraciones de entrenamiento |
+| `ml/04_predicciones.sql` | Predicciones sobre noviembre en `b_predicciones` |
+| `ml/05_metricas_tablero.sql` | Tabla `b_metricas_modelos` que alimenta el tablero |
+
 
 Se corren en ese orden. El de optimización se corre con la caché desactivada.
 
@@ -82,7 +87,9 @@ La reducción se calcula contra la copia sin optimizar, que tiene los mismos dat
 
 ## Modelos de BigQuery ML
 
-Se entrenaron dos tipos de modelo para estimar la **tarifa del viaje (`fare_amount`)** con datos conocidos al pedir el taxi: una regresión lineal como línea base y un árbol con boosting. Cada uno se probó con dos configuraciones de hiperparámetros. Los scripts están en `ml/`: `01_features.sql`, `02_modelos.sql`, `03_evaluacion.sql` y `04_predicciones.sql`.
+Se entrenaron dos tipos de modelo para estimar la **tarifa del viaje (`fare_amount`)** con datos conocidos al pedir el taxi: una regresión lineal como línea base y un árbol con boosting. Cada uno se probó con dos configuraciones de hiperparámetros. 
+
+Los scripts están en `ml/`: `01_features.sql`, `02_modelos.sql`, `03_evaluacion.sql`, `04_predicciones.sql` y `05_metricas_tablero.sql`.
 
 ### Variables
 
@@ -171,10 +178,13 @@ Los dos árboles evaluados sobre noviembre:
 
 ![Evaluación en noviembre](evidencias/B_evaluacion_noviembre.png)
 
-Iteraciones de entrenamiento (`ML.TRAINING_INFO`) del árbol v1 y del v2:
+Iteraciones de entrenamiento (`ML.TRAINING_INFO`) del árbol v1:
 
 ![Entrenamiento árbol v1](evidencias/B_training_info_arbol_v1.png)
-![Entrenamiento árbol v1](evidencias/B_training_info_arbol_v1b.png)
+![Entrenamiento árbol v1 (continuación)](evidencias/B_training_info_arbol_v1b.png)
+
+Iteraciones de entrenamiento (`ML.TRAINING_INFO`) del árbol v2:
+
 ![Entrenamiento árbol v2](evidencias/B_training_info_arbol_v2.png)
 
 Tabla de predicciones con tarifa real y predicha:
@@ -187,11 +197,14 @@ Tablero en Looker Studio, conectado a BigQuery: https://lookerstudio.google.com/
 
 - **Exploración:** viajes por día con promedio móvil de 7 días, mapa de calor de viajes por hora y día de la semana, tipo de pago por mes y las 12 zonas con más viajes.
 - **Optimización:** MB procesados por las cuatro consultas en la tabla pública, sin optimizar y optimizada.
+- **Predicciones:** tarifa real contra la predicha por `modelo_lineal_v2` y `modelo_arbol_v2` día por día en noviembre (rolling forecast), y la tabla de métricas de los modelos.
+
 
 ![Tendencia diaria](evidencias/A_tablero_1_tendencia.jpg)
 ![Mapa de calor por hora y día](evidencias/A_tablero_2_mapa_calor.jpg)
 ![Tipo de pago y zonas](evidencias/A_tablero_3_pagos_zonas.jpg)
 ![Comparación de bytes](evidencias/A_tablero_4_optimizacion.jpg)
+![Página de predicciones](evidencias/B_tablero_predicciones.png)
 
 ## Evidencias
 
