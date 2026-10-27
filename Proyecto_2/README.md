@@ -80,7 +80,106 @@ La reducción se calcula contra la copia sin optimizar, que tiene los mismos dat
 
 ## Modelos de BigQuery ML
 
-_Pendiente._
+## Modelos de BigQuery ML
+
+Se entrenaron dos tipos de modelo para estimar la **tarifa del viaje (`fare_amount`)** con datos conocidos al pedir el taxi: una regresión lineal como línea base y un árbol con boosting. Cada uno se probó con dos configuraciones de hiperparámetros. Los scripts están en `ml/`: `01_features.sql`, `02_modelos.sql`, `03_evaluacion.sql` y `04_predicciones.sql`.
+
+### Variables
+
+| Rol | Variables | Por qué |
+|---|---|---|
+| **Objetivo (salida)** | `fare_amount` | Es la tarifa que se quiere estimar. |
+| **Entrada** | `trip_distance`, `passenger_count`, `hora`, `dia_semana`, `es_fin_de_semana`, `pickup_location_id`, `dropoff_location_id`, `pickup_borough`, `dropoff_borough`, `tipo_tarifa`, `es_aeropuerto` | La distancia y la zona definen la tarifa base. La hora y el día capturan la demanda, y el aeropuerto cambia mucho el precio (56.77 USD en promedio contra 16.75 del resto). |
+| **Derivadas** | `es_hora_pico` (entre semana de 4 a 7 de la tarde), `es_mismo_borough` | La hora pico es el momento de mayor demanda y de tráfico lento. `es_mismo_borough` separa los viajes dentro de un distrito de los que cruzan entre distritos. |
+
+`trip_distance` se usa como la distancia estimada de la ruta al pedir el taxi.
+
+**Variables excluidas por data leakage:** `total_amount`, `tip_amount`, `tolls_amount`, `extra`, `mta_tax`, `imp_surcharge`, `airport_fee` y `propina_pct`, porque contienen la tarifa o se conocen hasta el final del viaje. También `dropoff_datetime`, `duracion_min` y `velocidad_mph`, que solo se saben al llegar.
+
+### Datos y split
+
+Se entrena sobre `b_viajes_ml`, una muestra reproducible (por hash, sin `RAND()`) de cerca del 5 % de `viajes_limpios`: **1,643,118 filas**.
+
+| Conjunto | Periodo | Filas | Uso |
+|---|---|---|---|
+| Entrenamiento | enero a agosto | 1,187,144 | Entrenar |
+| Evaluación | septiembre y octubre | 308,983 | Evaluar |
+| Nuevos | noviembre | 146,991 | Predicciones; no se usó al entrenar ni al evaluar |
+
+Se usó un **split temporal personalizado** (`data_split_method = 'CUSTOM'` con la columna `es_evaluacion`). Así el modelo se evalúa con meses que nunca vio, como pasaría en la realidad. El dataset no tiene diciembre, por eso noviembre es el conjunto de datos nuevos, y el 17 y 18 de septiembre están incompletos en la fuente.
+
+Para comparar, se entrenó también una versión con **split aleatorio** (`data_split_method = 'RANDOM'` y `data_split_eval_fraction = 0.2`).
+
+### Modelos e hiperparámetros
+
+| Modelo | Tipo | Hiperparámetros | Split |
+|---|---|---|---|
+| `modelo_lineal_v1` | `LINEAR_REG` | `l2_reg = 0`, `max_iterations = 20` | Temporal |
+| `modelo_lineal_v2` | `LINEAR_REG` | `l2_reg = 1`, `max_iterations = 20` | Temporal |
+| `modelo_arbol_v1` | `BOOSTED_TREE_REGRESSOR` | `max_iterations = 50`, `learn_rate = 0.1`, `max_tree_depth = 6`, `subsample = 0.8` | Temporal |
+| `modelo_arbol_v2` | `BOOSTED_TREE_REGRESSOR` | `max_iterations = 50`, `learn_rate = 0.2`, `max_tree_depth = 8`, `subsample = 0.8` | Temporal |
+| `modelo_arbol_v2_random` | `BOOSTED_TREE_REGRESSOR` | Igual que `modelo_arbol_v2` | Aleatorio 20 % |
+
+### Resultados
+
+Métricas sobre el conjunto de evaluación de cada modelo (MAE y RMSE en USD):
+
+| Modelo | MAE | RMSE | R² |
+|---|---:|---:|---:|
+| `modelo_lineal_v1` | 2.16 | 72.35 | -32.98 |
+| `modelo_lineal_v2` | 1.90 | 3.26 | 0.931 |
+| `modelo_arbol_v1` | 1.62 | 2.85 | 0.947 |
+| `modelo_arbol_v2` | **1.49** | **2.66** | **0.954** |
+| `modelo_arbol_v2_random` (evaluación aleatoria) | 1.27 | 2.13 | 0.967 |
+
+- **El lineal v1 falló por unos pocos viajes.** Cuatro predicciones salieron entre -18,000 y -25,000 USD, todas con salida en zonas poco frecuentes (222, 19 y 46). Con regularización L2 (`l2_reg = 1`) el RMSE bajó de 72.35 a 3.26, lo que apunta a coeficientes inestables en zonas con pocos viajes de entrenamiento.
+- **El árbol supera al lineal**, y la configuración v2 (árboles más profundos y `learn_rate` mayor) mejora a la v1 en las tres métricas.
+- **El split aleatorio da métricas optimistas.** Se evaluaron ambos árboles sobre noviembre, que ninguno vio:
+
+| Modelo | MAE | RMSE | R² |
+|---|---:|---:|---:|
+| `modelo_arbol_v2` (split temporal) | 1.447 | 2.418 | 0.960 |
+| `modelo_arbol_v2_random` (split aleatorio) | 1.446 | 2.405 | 0.960 |
+
+  En noviembre los dos rinden casi igual, pero el split aleatorio prometía un error cerca de 12 % menor (1.27) que el real (1.45), porque mezcla en entrenamiento y evaluación viajes del mismo periodo. El temporal estimó 1.49, mucho más cerca de lo que pasó en datos nuevos.
+
+**Modelo elegido: `modelo_arbol_v2` con split temporal.** Tiene el mejor MAE, RMSE y R² en la evaluación temporal, y en noviembre su MAE (1.447) es menor que el del lineal v2 (1.861).
+
+### Predicciones sobre registros nuevos
+
+`ml/04_predicciones.sql` genera la tabla `b_predicciones` con las **146,991 predicciones de noviembre**, tarifa real y predicha por `modelo_lineal_v2` y `modelo_arbol_v2`. Error absoluto medio en noviembre: 1.861 USD el lineal y 1.447 USD el árbol.
+
+### Evidencias de los modelos
+
+Los cinco modelos creados en BigQuery:
+
+![Modelos creados](evidencias/B_modelos_creados.png)
+
+Filas por conjunto en `b_viajes_ml`:
+
+![Conteo por conjunto](evidencias/B_conteo_conjuntos.png)
+
+Comparación de métricas de los cinco modelos:
+
+![Métricas de los modelos](evidencias/B_metricas_modelos.png)
+
+Los 20 mayores errores de `modelo_lineal_v1`, con predicciones absurdas en zonas poco frecuentes:
+
+![Diagnóstico del lineal v1](evidencias/B_diagnostico_lineal_v1.png)
+
+Los dos árboles evaluados sobre noviembre:
+
+![Evaluación en noviembre](evidencias/B_evaluacion_noviembre.png)
+
+Iteraciones de entrenamiento (`ML.TRAINING_INFO`) del árbol v1 y del v2:
+
+![Entrenamiento árbol v1](evidencias/B_training_info_arbol_v1.png)
+![Entrenamiento árbol v1](evidencias/B_training_info_arbol_v1b.png)
+![Entrenamiento árbol v2](evidencias/B_training_info_arbol_v2.png)
+
+Tabla de predicciones con tarifa real y predicha:
+
+![Predicciones](evidencias/B_predicciones_tabla.png)
 
 ## Informe visual
 
