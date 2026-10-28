@@ -4,8 +4,8 @@ Seminario de Sistemas 2 · Grupo 15
 
 | Integrante | Carnet |
 |---|---|
-| Joel | 202201395 |
-| Alvaro | 199817948 |
+| Joel Alexander Guzaro Tzunun | 202201395 |
+| Alvaro Humberto Garcia Olivarez | 199817948 |
 
 ## Dataset
 
@@ -194,7 +194,7 @@ Tablero en Looker Studio, conectado a BigQuery: https://lookerstudio.google.com/
 
 - **Exploración:** viajes por día con promedio móvil de 7 días, mapa de calor de viajes por hora y día de la semana, tipo de pago por mes y las 12 zonas con más viajes.
 - **Optimización:** MB procesados por las cuatro consultas en la tabla pública, sin optimizar y optimizada.
-- **Predicciones:** tarifa promedio real contra la predicha por `modelo_lineal_v2` y `modelo_arbol_v2` para cada día de noviembre, y la tabla de métricas de los modelos.
+- **Predicciones (rolling forecast):** tarifa promedio real contra la predicha por `modelo_lineal_v2` y `modelo_arbol_v2` para cada día de noviembre, y la tabla de métricas de los modelos.
 
 ![Tendencia diaria](evidencias/A_tablero_1_tendencia.jpg)
 ![Mapa de calor por hora y día](evidencias/A_tablero_2_mapa_calor.jpg)
