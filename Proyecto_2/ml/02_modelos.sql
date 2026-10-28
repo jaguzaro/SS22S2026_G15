@@ -1,9 +1,4 @@
--- ml/02_modelos.sql
--- Modelos de BigQuery ML. Variable objetivo: fare_amount (tarifa al pedir el taxi).
--- Split temporal: es_evaluacion = TRUE (sep-oct) evalúa; ene-ago entrena; noviembre ('nuevo') no se toca.
-
-
--- Modelo 1 (línea base): regresión lineal, v1 sin regularización.
+-- 1. Regresión lineal v1, sin regularización, con split temporal.
 CREATE OR REPLACE MODEL `ss2-g15-nyc-taxi.nyc_taxi_g15.modelo_lineal_v1`
 OPTIONS (
   model_type = 'LINEAR_REG', input_label_cols = ['fare_amount'],
@@ -16,9 +11,7 @@ SELECT fare_amount, trip_distance, passenger_count, hora, dia_semana, es_fin_de_
 FROM `ss2-g15-nyc-taxi.nyc_taxi_g15.b_viajes_ml`
 WHERE conjunto IN ('entrenamiento', 'evaluacion');
 
-
-
--- Modelo 1, v2: igual pero con regularización L2 (corrige coeficientes inestables en zonas raras).
+-- 2. Regresión lineal v2, con regularización L2.
 CREATE OR REPLACE MODEL `ss2-g15-nyc-taxi.nyc_taxi_g15.modelo_lineal_v2`
 OPTIONS (
   model_type = 'LINEAR_REG', input_label_cols = ['fare_amount'],
@@ -31,9 +24,7 @@ SELECT fare_amount, trip_distance, passenger_count, hora, dia_semana, es_fin_de_
 FROM `ss2-g15-nyc-taxi.nyc_taxi_g15.b_viajes_ml`
 WHERE conjunto IN ('entrenamiento', 'evaluacion');
 
-
-
--- Modelo 2: árbol con boosting, v1.
+-- 3. Árbol con boosting v1.
 CREATE OR REPLACE MODEL `ss2-g15-nyc-taxi.nyc_taxi_g15.modelo_arbol_v1`
 OPTIONS (
   model_type = 'BOOSTED_TREE_REGRESSOR', input_label_cols = ['fare_amount'],
@@ -46,9 +37,7 @@ SELECT fare_amount, trip_distance, passenger_count, hora, dia_semana, es_fin_de_
 FROM `ss2-g15-nyc-taxi.nyc_taxi_g15.b_viajes_ml`
 WHERE conjunto IN ('entrenamiento', 'evaluacion');
 
-
-
--- Modelo 2, v2: árboles más profundos y learn_rate mayor.
+-- 4. Árbol con boosting v2, más profundo y con learn_rate mayor.
 CREATE OR REPLACE MODEL `ss2-g15-nyc-taxi.nyc_taxi_g15.modelo_arbol_v2`
 OPTIONS (
   model_type = 'BOOSTED_TREE_REGRESSOR', input_label_cols = ['fare_amount'],
@@ -61,10 +50,7 @@ SELECT fare_amount, trip_distance, passenger_count, hora, dia_semana, es_fin_de_
 FROM `ss2-g15-nyc-taxi.nyc_taxi_g15.b_viajes_ml`
 WHERE conjunto IN ('entrenamiento', 'evaluacion');
 
-
-
--- Modelo 2, v2 con split ALEATORIO (data_split_eval_fraction), para comparar contra el temporal.
--- No lleva es_evaluacion: aquí BigQuery separa el 20 % al azar.
+-- 5. Árbol v2 con split aleatorio del 20 %, para comparar contra el temporal.
 CREATE OR REPLACE MODEL `ss2-g15-nyc-taxi.nyc_taxi_g15.modelo_arbol_v2_random`
 OPTIONS (
   model_type = 'BOOSTED_TREE_REGRESSOR', input_label_cols = ['fare_amount'],

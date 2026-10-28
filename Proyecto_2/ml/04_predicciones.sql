@@ -1,11 +1,4 @@
-
--- ml/04_predicciones.sql
--- Predicciones sobre noviembre (registros nuevos) con los dos modelos elegidos.
--- Noviembre nunca se usó para entrenar ni para evaluar, así que estas predicciones
--- se hacen sobre datos que los modelos no vieron.
-
-
--- 1) Fija los viajes de noviembre con un identificador estable.
+-- 1. Viajes de noviembre con un identificador estable.
 CREATE OR REPLACE TABLE `ss2-g15-nyc-taxi.nyc_taxi_g15.b_viajes_nuevos` AS
 SELECT
   ROW_NUMBER() OVER (ORDER BY pickup_datetime, pickup_location_id,
@@ -14,7 +7,7 @@ SELECT
 FROM `ss2-g15-nyc-taxi.nyc_taxi_g15.b_viajes_ml`
 WHERE conjunto = 'nuevo';
 
--- 2) Predice con cada modelo y une los resultados por id.
+-- 2. Tarifa real y predicha por el lineal v2 y el árbol v2 para cada viaje de noviembre.
 CREATE OR REPLACE TABLE `ss2-g15-nyc-taxi.nyc_taxi_g15.b_predicciones` AS
 WITH lineal AS (
   SELECT id, predicted_fare_amount AS pred_lineal_v2

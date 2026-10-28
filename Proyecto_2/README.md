@@ -34,7 +34,6 @@ Todo corre en el proyecto `ss2-g15-nyc-taxi`, dataset `nyc_taxi_g15`, en la regi
 | `ml/04_predicciones.sql` | Predicciones sobre noviembre en `b_predicciones` |
 | `ml/05_metricas_tablero.sql` | Tabla `b_metricas_modelos` que alimenta el tablero |
 
-
 Se corren en ese orden. El de optimización se corre con la caché desactivada.
 
 ## Transformaciones
@@ -85,11 +84,7 @@ La reducción se calcula contra la copia sin optimizar, que tiene los mismos dat
 
 ## Modelos de BigQuery ML
 
-## Modelos de BigQuery ML
-
-Se entrenaron dos tipos de modelo para estimar la **tarifa del viaje (`fare_amount`)** con datos conocidos al pedir el taxi: una regresión lineal como línea base y un árbol con boosting. Cada uno se probó con dos configuraciones de hiperparámetros. 
-
-Los scripts están en `ml/`: `01_features.sql`, `02_modelos.sql`, `03_evaluacion.sql`, `04_predicciones.sql` y `05_metricas_tablero.sql`.
+Se entrenaron dos tipos de modelo para estimar la **tarifa del viaje (`fare_amount`)** con datos conocidos al pedir el taxi: una regresión lineal como línea base y un árbol con boosting. Cada uno se probó con dos configuraciones de hiperparámetros.
 
 ### Variables
 
@@ -113,7 +108,7 @@ Se entrena sobre `b_viajes_ml`, una muestra reproducible (por hash, sin `RAND()`
 | Evaluación | septiembre y octubre | 308,983 | Evaluar |
 | Nuevos | noviembre | 146,991 | Predicciones; no se usó al entrenar ni al evaluar |
 
-Se usó un **split temporal personalizado** (`data_split_method = 'CUSTOM'` con la columna `es_evaluacion`). Así el modelo se evalúa con meses que nunca vio, como pasaría en la realidad. El dataset no tiene diciembre, por eso noviembre es el conjunto de datos nuevos, y el 17 y 18 de septiembre están incompletos en la fuente.
+Se usó un **split temporal personalizado** (`data_split_method = 'CUSTOM'` con la columna `es_evaluacion`). Así el modelo se evalúa con meses que nunca vio, como pasaría en la realidad. Como el dataset no tiene diciembre, noviembre queda como el conjunto de datos nuevos.
 
 Para comparar, se entrenó también una versión con **split aleatorio** (`data_split_method = 'RANDOM'` y `data_split_eval_fraction = 0.2`).
 
@@ -197,8 +192,7 @@ Tablero en Looker Studio, conectado a BigQuery: https://lookerstudio.google.com/
 
 - **Exploración:** viajes por día con promedio móvil de 7 días, mapa de calor de viajes por hora y día de la semana, tipo de pago por mes y las 12 zonas con más viajes.
 - **Optimización:** MB procesados por las cuatro consultas en la tabla pública, sin optimizar y optimizada.
-- **Predicciones:** tarifa real contra la predicha por `modelo_lineal_v2` y `modelo_arbol_v2` día por día en noviembre (rolling forecast), y la tabla de métricas de los modelos.
-
+- **Predicciones:** tarifa promedio real contra la predicha por `modelo_lineal_v2` y `modelo_arbol_v2` para cada día de noviembre, y la tabla de métricas de los modelos.
 
 ![Tendencia diaria](evidencias/A_tablero_1_tendencia.jpg)
 ![Mapa de calor por hora y día](evidencias/A_tablero_2_mapa_calor.jpg)
