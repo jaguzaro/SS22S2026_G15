@@ -81,6 +81,8 @@ La reducción se calcula contra la copia sin optimizar, que tiene los mismos dat
 - **El 91 % de los viajes sale de Manhattan**, y el 85 % empieza y termina ahí.
 - **Los viajes de aeropuerto son el 10 % del total pero dejan el 27 % del ingreso:** en promedio cuestan 56.77 USD, contra 16.75 del resto.
 - **El 80 % paga con tarjeta**, y la propina típica es del 26 % de la tarifa.
+- **La tarifa se puede estimar antes del viaje con un error promedio de 1.45 USD.** El árbol con boosting logró ese error en noviembre, que nunca vio al entrenar, contra 1.86 USD de la regresión lineal. Solo con datos que se conocen al pedir el taxi, como la distancia, las zonas, la hora y si el viaje es de aeropuerto, el modelo explica el 96 % de la variación de la tarifa (R² de 0.96).
+- **Evaluar con un split aleatorio da una idea demasiado optimista.** Con el split aleatorio el árbol prometía un error de 1.27 USD, y en noviembre fue de 1.45; el split temporal estimó 1.49, mucho más cerca de lo que pasó con datos nuevos.
 
 ## Modelos de BigQuery ML
 
